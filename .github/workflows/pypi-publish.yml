@@ -18,7 +18,7 @@ jobs:
         run: |
           set -euo pipefail
           tag="${GITHUB_REF_NAME#v}"
-          cargo_version="$(sed -n 's/^version = \"\\(.*\\)\"/\\1/p' turl-cli/Cargo.toml | head -n 1)"
+          cargo_version="$(grep -m1 '^version = ' turl-cli/Cargo.toml | cut -d '\"' -f2)"
 
           if [[ -z "${cargo_version}" ]]; then
             echo "Failed to read version from turl-cli/Cargo.toml"
