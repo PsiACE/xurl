@@ -36,6 +36,13 @@ pub enum TurlError {
         source: std::io::Error,
     },
 
+    #[error("sqlite error on {path}: {source}")]
+    Sqlite {
+        path: PathBuf,
+        #[source]
+        source: rusqlite::Error,
+    },
+
     #[error("invalid json line in {path} at line {line}: {source}")]
     InvalidJsonLine {
         path: PathBuf,

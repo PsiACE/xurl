@@ -5,6 +5,7 @@ use crate::error::{Result, TurlError};
 use crate::model::{ProviderKind, ResolvedThread};
 use crate::provider::claude::ClaudeProvider;
 use crate::provider::codex::CodexProvider;
+use crate::provider::opencode::OpencodeProvider;
 use crate::provider::{Provider, ProviderRoots};
 use crate::render;
 use crate::uri::ThreadUri;
@@ -13,6 +14,9 @@ pub fn resolve_thread(uri: &ThreadUri, roots: &ProviderRoots) -> Result<Resolved
     match uri.provider {
         ProviderKind::Codex => CodexProvider::new(&roots.codex_root).resolve(&uri.session_id),
         ProviderKind::Claude => ClaudeProvider::new(&roots.claude_root).resolve(&uri.session_id),
+        ProviderKind::Opencode => {
+            OpencodeProvider::new(&roots.opencode_root).resolve(&uri.session_id)
+        }
     }
 }
 

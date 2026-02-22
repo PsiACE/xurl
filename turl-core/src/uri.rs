@@ -10,6 +10,8 @@ static SESSION_ID_RE: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
         .expect("valid regex")
 });
+static OPENCODE_SESSION_ID_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"^ses_[0-9A-Za-z]+$").expect("valid regex"));
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ThreadUri {
@@ -38,21 +40,33 @@ impl FromStr for ThreadUri {
         let provider = match scheme {
             "codex" => ProviderKind::Codex,
             "claude" => ProviderKind::Claude,
+            "opencode" => ProviderKind::Opencode,
             _ => return Err(TurlError::UnsupportedScheme(scheme.to_string())),
         };
 
         let id = match provider {
             ProviderKind::Codex => target.strip_prefix("threads/").unwrap_or(target),
-            ProviderKind::Claude => target,
+            ProviderKind::Claude | ProviderKind::Opencode => target,
         };
 
-        if !SESSION_ID_RE.is_match(id) {
-            return Err(TurlError::InvalidSessionId(id.to_string()));
+        match provider {
+            ProviderKind::Codex | ProviderKind::Claude if !SESSION_ID_RE.is_match(id) => {
+                return Err(TurlError::InvalidSessionId(id.to_string()));
+            }
+            ProviderKind::Opencode if !OPENCODE_SESSION_ID_RE.is_match(id) => {
+                return Err(TurlError::InvalidSessionId(id.to_string()));
+            }
+            _ => {}
         }
+
+        let session_id = match provider {
+            ProviderKind::Codex | ProviderKind::Claude => id.to_ascii_lowercase(),
+            ProviderKind::Opencode => id.to_string(),
+        };
 
         Ok(Self {
             provider,
-            session_id: id.to_ascii_lowercase(),
+            session_id,
         })
     }
 }
@@ -89,5 +103,13 @@ mod tests {
     fn parse_rejects_invalid_session_id() {
         let err = ThreadUri::parse("codex://agent-a1b2c3").expect_err("must reject non-session id");
         assert!(format!("{err}").contains("invalid session id"));
+    }
+
+    #[test]
+    fn parse_valid_opencode_uri() {
+        let uri = ThreadUri::parse("opencode://ses_43a90e3adffejRgrTdlJa48CtE")
+            .expect("parse should succeed");
+        assert_eq!(uri.provider, ProviderKind::Opencode);
+        assert_eq!(uri.session_id, "ses_43a90e3adffejRgrTdlJa48CtE");
     }
 }

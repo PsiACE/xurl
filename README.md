@@ -8,11 +8,13 @@
   - `codex://<session_id>`
   - `codex://threads/<session_id>`
   - `claude://<session_id>`
+  - `opencode://<session_id>`
 - Resolves thread files from local storage roots.
 - Default output is markdown:
   - includes only `user` / `assistant` messages
   - filters tool-call related records
 - `--raw` outputs original JSONL content.
+  - for OpenCode, `--raw` outputs normalized JSONL materialized from local SQLite records.
 
 ## CLI
 
@@ -20,6 +22,7 @@
 turl codex://019c871c-b1f9-7f60-9c4f-87ed09f13592
 turl codex://threads/019c871c-b1f9-7f60-9c4f-87ed09f13592
 turl claude://2823d1df-720a-4c31-ac55-ae8ba726721f
+turl opencode://ses_43a90e3adffejRgrTdlJa48CtE
 turl codex://019c871c-b1f9-7f60-9c4f-87ed09f13592 --raw
 ```
 
@@ -50,10 +53,14 @@ python3 "${CODEX_HOME:-$HOME/.codex}/skills/.system/skill-installer/scripts/inst
 - `CLAUDE_CONFIG_DIR`: official Claude Code config/data directory
 - Claude default root: `~/.claude`
 
+- `XDG_DATA_HOME/opencode`: OpenCode data root
+- OpenCode default root: `~/.local/share/opencode`
+
 Resolution precedence:
 
 - Codex: `CODEX_HOME` > `~/.codex`
 - Claude: `CLAUDE_CONFIG_DIR` > `~/.claude`
+- OpenCode: `XDG_DATA_HOME/opencode` > `~/.local/share/opencode`
 
 ## URI Rules
 
@@ -61,8 +68,11 @@ Resolution precedence:
   - `codex://<session_id>`
   - `codex://threads/<session_id>`
   - `claude://<session_id>`
-- Supported schemes: `codex`, `claude`
-- Only session IDs are accepted (UUID-like format)
+  - `opencode://<session_id>`
+- Supported schemes: `codex`, `claude`, `opencode`
+- Session ID rules:
+  - `codex`, `claude`: UUID-like format
+  - `opencode`: `ses_` prefix with alphanumeric body
 
 ## Exit Behavior
 
@@ -77,5 +87,5 @@ Resolution precedence:
 ## Current Scope
 
 - local filesystem only
-- providers: Codex and Claude
+- providers: Codex, Claude, and OpenCode
 - no remote fetching

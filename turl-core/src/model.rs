@@ -5,6 +5,7 @@ use std::path::PathBuf;
 pub enum ProviderKind {
     Codex,
     Claude,
+    Opencode,
 }
 
 impl fmt::Display for ProviderKind {
@@ -12,6 +13,7 @@ impl fmt::Display for ProviderKind {
         match self {
             Self::Codex => write!(f, "codex"),
             Self::Claude => write!(f, "claude"),
+            Self::Opencode => write!(f, "opencode"),
         }
     }
 }

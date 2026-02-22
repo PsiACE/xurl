@@ -67,6 +67,7 @@ pub fn extract_messages(
         let extracted = match provider {
             ProviderKind::Codex => extract_codex_message(&value),
             ProviderKind::Claude => extract_claude_message(&value),
+            ProviderKind::Opencode => extract_opencode_message(&value),
         };
 
         if let Some(message) = extracted {
@@ -143,6 +144,48 @@ fn extract_claude_message(value: &Value) -> Option<ThreadMessage> {
     }
 
     Some(ThreadMessage { role, text })
+}
+
+fn extract_opencode_message(value: &Value) -> Option<ThreadMessage> {
+    let record_type = value.get("type").and_then(Value::as_str)?;
+    if record_type != "message" {
+        return None;
+    }
+
+    let message = value.get("message")?;
+    let role = message.get("role").and_then(Value::as_str)?;
+    let role = parse_role(role)?;
+
+    let mut chunks = Vec::new();
+    for part in value
+        .get("parts")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        let Some(part_type) = part.get("type").and_then(Value::as_str) else {
+            continue;
+        };
+
+        if part_type != "text" && part_type != "reasoning" {
+            continue;
+        }
+
+        if let Some(text) = part.get("text").and_then(Value::as_str)
+            && !text.trim().is_empty()
+        {
+            chunks.push(text.trim().to_string());
+        }
+    }
+
+    if chunks.is_empty() {
+        return None;
+    }
+
+    Some(ThreadMessage {
+        role,
+        text: chunks.join("\n\n"),
+    })
 }
 
 fn parse_role(role: &str) -> Option<MessageRole> {
@@ -228,5 +271,18 @@ mod tests {
             extract_messages(ProviderKind::Claude, Path::new("/tmp/mock"), raw).expect("extract");
         assert_eq!(messages.len(), 2);
         assert_eq!(messages[1].text, "done");
+    }
+
+    #[test]
+    fn opencode_extracts_text_and_reasoning_parts() {
+        let raw = r#"{"type":"session","sessionId":"ses_43a90e3adffejRgrTdlJa48CtE"}
+{"type":"message","id":"msg_1","sessionId":"ses_43a90e3adffejRgrTdlJa48CtE","message":{"role":"user","time":{"created":1}},"parts":[{"type":"text","text":"hello"}]}
+{"type":"message","id":"msg_2","sessionId":"ses_43a90e3adffejRgrTdlJa48CtE","message":{"role":"assistant","time":{"created":2}},"parts":[{"type":"reasoning","text":"thinking"},{"type":"tool","tool":"read"},{"type":"text","text":"world"}]}"#;
+
+        let messages =
+            extract_messages(ProviderKind::Opencode, Path::new("/tmp/mock"), raw).expect("extract");
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[0].text, "hello");
+        assert_eq!(messages[1].text, "thinking\n\nworld");
     }
 }

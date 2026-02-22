@@ -8,6 +8,7 @@ use crate::model::ResolvedThread;
 
 pub mod claude;
 pub mod codex;
+pub mod opencode;
 
 pub trait Provider {
     fn resolve(&self, session_id: &str) -> Result<ResolvedThread>;
@@ -17,6 +18,7 @@ pub trait Provider {
 pub struct ProviderRoots {
     pub codex_root: PathBuf,
     pub claude_root: PathBuf,
+    pub opencode_root: PathBuf,
 }
 
 impl ProviderRoots {
@@ -37,9 +39,19 @@ impl ProviderRoots {
             .map(PathBuf::from)
             .unwrap_or_else(|| home.join(".claude"));
 
+        // Precedence:
+        // 1) XDG_DATA_HOME/opencode
+        // 2) ~/.local/share/opencode
+        let opencode_root = env::var_os("XDG_DATA_HOME")
+            .filter(|path| !path.is_empty())
+            .map(PathBuf::from)
+            .map(|path| path.join("opencode"))
+            .unwrap_or_else(|| home.join(".local/share/opencode"));
+
         Ok(Self {
             codex_root,
             claude_root,
+            opencode_root,
         })
     }
 }
