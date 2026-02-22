@@ -1,0 +1,10 @@
+[workspace]
+members = ["turl-core", "turl-cli"]
+resolver = "2"
+
+[workspace.package]
+edition = "2024"
+
+[workspace.lints.clippy]
+all = "warn"
+pedantic = "warn"

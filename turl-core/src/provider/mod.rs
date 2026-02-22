@@ -1,0 +1,45 @@
+use std::env;
+use std::path::PathBuf;
+
+use dirs::home_dir;
+
+use crate::error::{Result, TurlError};
+use crate::model::ResolvedThread;
+
+pub mod claude;
+pub mod codex;
+
+pub trait Provider {
+    fn resolve(&self, session_id: &str) -> Result<ResolvedThread>;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderRoots {
+    pub codex_root: PathBuf,
+    pub claude_root: PathBuf,
+}
+
+impl ProviderRoots {
+    pub fn from_env_or_home() -> Result<Self> {
+        let home = home_dir().ok_or(TurlError::HomeDirectoryNotFound)?;
+
+        // Precedence:
+        // 1) CODEX_HOME (official Codex home env)
+        // 2) ~/.codex (Codex default)
+        let codex_root = env::var_os("CODEX_HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home.join(".codex"));
+
+        // Precedence:
+        // 1) CLAUDE_CONFIG_DIR (official Claude Code config/data root env)
+        // 2) ~/.claude (Claude default)
+        let claude_root = env::var_os("CLAUDE_CONFIG_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home.join(".claude"));
+
+        Ok(Self {
+            codex_root,
+            claude_root,
+        })
+    }
+}
