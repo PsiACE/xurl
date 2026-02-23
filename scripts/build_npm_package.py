@@ -221,6 +221,15 @@ def copy_native_binaries(
                 shutil.rmtree(dest_component_dir)
             shutil.copytree(src_component_dir, dest_component_dir)
 
+            # GitHub artifact zips can drop executable bits on Unix payloads.
+            # Ensure bundled binaries stay executable after staging.
+            for file_path in dest_component_dir.rglob("*"):
+                if not file_path.is_file():
+                    continue
+                if file_path.suffix == ".exe":
+                    continue
+                file_path.chmod(file_path.stat().st_mode | 0o111)
+
     if target_filter is not None:
         missing_targets = sorted(target_filter - copied_targets)
         if missing_targets:
