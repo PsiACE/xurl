@@ -18,10 +18,10 @@ jobs:
         run: |
           set -euo pipefail
           tag="${GITHUB_REF_NAME#v}"
-          cargo_version="$(awk -F '\"' '$1 ~ /^version = / { print $2; exit }' turl-cli/Cargo.toml)"
+          cargo_version="$(awk -F '\"' '$1 ~ /^version = / { print $2; exit }' xurl-cli/Cargo.toml)"
 
           if [[ -z "${cargo_version}" ]]; then
-            echo "Failed to read version from turl-cli/Cargo.toml"
+            echo "Failed to read version from xurl-cli/Cargo.toml"
             exit 1
           fi
 
@@ -96,7 +96,7 @@ jobs:
       - build-sdist
     environment:
       name: pypi
-      url: https://pypi.org/p/xuanwo-turl
+      url: https://pypi.org/p/xuanwo-xurl
     permissions:
       id-token: write
 
