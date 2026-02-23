@@ -12,6 +12,9 @@ const REAL_FIXTURE_AGENT_ID: &str = "29bf19c3-b83e-401d-8f38-5660b7f67152";
 const AMP_SESSION_ID: &str = "T-019c0797-c402-7389-bd80-d785c98df295";
 const GEMINI_SESSION_ID: &str = "29d207db-ca7e-40ba-87f7-e14c9de60613";
 const GEMINI_REAL_SESSION_ID: &str = "da2ab190-85f8-4d5c-bcce-8292921a33bf";
+const PI_SESSION_ID: &str = "12cb4c19-2774-4de4-a0d0-9fa32fbae29f";
+const PI_ENTRY_ID: &str = "d1b2c3d4";
+const PI_REAL_SESSION_ID: &str = "bc6ea3d9-0e40-4942-a490-3e0aa7f125de";
 const CLAUDE_SESSION_ID: &str = "2823d1df-720a-4c31-ac55-ae8ba726721f";
 const CLAUDE_AGENT_ID: &str = "acompact-69d537";
 const CLAUDE_REAL_MAIN_ID: &str = "b90fc33d-33cb-4027-8558-119e2b56c74e";
@@ -142,6 +145,22 @@ fn setup_gemini_tree() -> tempfile::TempDir {
     temp
 }
 
+fn setup_pi_tree() -> tempfile::TempDir {
+    let temp = tempdir().expect("tempdir");
+    let thread_path = temp.path().join(
+        "agent/sessions/--Users-xuanwo-Code-pi-project--/2026-02-23T13-00-12-780Z_12cb4c19-2774-4de4-a0d0-9fa32fbae29f.jsonl",
+    );
+    fs::create_dir_all(thread_path.parent().expect("parent")).expect("mkdir");
+    fs::write(
+        &thread_path,
+        format!(
+            "{{\"type\":\"session\",\"version\":3,\"id\":\"{PI_SESSION_ID}\",\"timestamp\":\"2026-02-23T13:00:12.780Z\",\"cwd\":\"/tmp/project\"}}\n{{\"type\":\"message\",\"id\":\"a1b2c3d4\",\"parentId\":null,\"timestamp\":\"2026-02-23T13:00:13.000Z\",\"message\":{{\"role\":\"user\",\"content\":[{{\"type\":\"text\",\"text\":\"root\"}}]}}}}\n{{\"type\":\"message\",\"id\":\"b1b2c3d4\",\"parentId\":\"a1b2c3d4\",\"timestamp\":\"2026-02-23T13:00:14.000Z\",\"message\":{{\"role\":\"assistant\",\"content\":[{{\"type\":\"text\",\"text\":\"root done\"}}]}}}}\n{{\"type\":\"message\",\"id\":\"c1b2c3d4\",\"parentId\":\"b1b2c3d4\",\"timestamp\":\"2026-02-23T13:00:15.000Z\",\"message\":{{\"role\":\"user\",\"content\":[{{\"type\":\"text\",\"text\":\"branch one\"}}]}}}}\n{{\"type\":\"message\",\"id\":\"d1b2c3d4\",\"parentId\":\"c1b2c3d4\",\"timestamp\":\"2026-02-23T13:00:16.000Z\",\"message\":{{\"role\":\"assistant\",\"content\":[{{\"type\":\"text\",\"text\":\"branch one done\"}}]}}}}\n{{\"type\":\"message\",\"id\":\"e1b2c3d4\",\"parentId\":\"b1b2c3d4\",\"timestamp\":\"2026-02-23T13:00:17.000Z\",\"message\":{{\"role\":\"user\",\"content\":[{{\"type\":\"text\",\"text\":\"branch two\"}}]}}}}\n{{\"type\":\"message\",\"id\":\"f1b2c3d4\",\"parentId\":\"e1b2c3d4\",\"timestamp\":\"2026-02-23T13:00:18.000Z\",\"message\":{{\"role\":\"assistant\",\"content\":[{{\"type\":\"text\",\"text\":\"branch two done\"}}]}}}}\n"
+        ),
+    )
+    .expect("write");
+    temp
+}
+
 fn codex_real_fixture_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/codex_real_sanitized")
 }
@@ -156,6 +175,10 @@ fn gemini_real_fixture_root() -> PathBuf {
 
 fn opencode_real_fixture_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/opencode_real_sanitized")
+}
+
+fn pi_real_fixture_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/pi_real_sanitized")
 }
 
 fn codex_uri() -> String {
@@ -188,6 +211,18 @@ fn gemini_uri() -> String {
 
 fn gemini_real_uri() -> String {
     format!("gemini://{GEMINI_REAL_SESSION_ID}")
+}
+
+fn pi_uri() -> String {
+    format!("pi://{PI_SESSION_ID}")
+}
+
+fn pi_entry_uri() -> String {
+    format!("pi://{PI_SESSION_ID}/{PI_ENTRY_ID}")
+}
+
+fn pi_real_uri() -> String {
+    format!("pi://{PI_REAL_SESSION_ID}")
 }
 
 fn claude_real_uri() -> String {
@@ -438,6 +473,114 @@ fn gemini_raw_outputs_json() {
         .assert()
         .success()
         .stdout(predicate::str::contains("\"sessionId\""));
+}
+
+#[test]
+fn pi_outputs_markdown_from_latest_leaf() {
+    let temp = setup_pi_tree();
+
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("turl"));
+    cmd.env("PI_CODING_AGENT_DIR", temp.path().join("agent"))
+        .arg(pi_uri())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("# Thread"))
+        .stdout(predicate::str::contains("root"))
+        .stdout(predicate::str::contains("branch two done"))
+        .stdout(predicate::str::contains("branch one done").not());
+}
+
+#[test]
+fn pi_entry_outputs_markdown_from_requested_leaf() {
+    let temp = setup_pi_tree();
+
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("turl"));
+    cmd.env("PI_CODING_AGENT_DIR", temp.path().join("agent"))
+        .arg(pi_entry_uri())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("# Thread"))
+        .stdout(predicate::str::contains("branch one done"))
+        .stdout(predicate::str::contains("branch two done").not());
+}
+
+#[test]
+fn pi_raw_outputs_json() {
+    let temp = setup_pi_tree();
+
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("turl"));
+    cmd.env("PI_CODING_AGENT_DIR", temp.path().join("agent"))
+        .arg(pi_uri())
+        .arg("--raw")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"type\":\"session\""))
+        .stdout(predicate::str::contains(PI_SESSION_ID));
+}
+
+#[test]
+fn pi_list_outputs_markdown() {
+    let temp = setup_pi_tree();
+
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("turl"));
+    cmd.env("PI_CODING_AGENT_DIR", temp.path().join("agent"))
+        .arg(pi_uri())
+        .arg("--list")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("# Pi Session Entries"))
+        .stdout(predicate::str::contains(format!(
+            "pi://{PI_SESSION_ID}/a1b2c3d4"
+        )))
+        .stdout(predicate::str::contains("- Leaf: `yes`"));
+}
+
+#[test]
+fn pi_list_raw_outputs_json() {
+    let temp = setup_pi_tree();
+
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("turl"));
+    cmd.env("PI_CODING_AGENT_DIR", temp.path().join("agent"))
+        .arg(pi_uri())
+        .arg("--list")
+        .arg("--raw")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"provider\": \"pi\""))
+        .stdout(predicate::str::contains(
+            "\"session_id\": \"12cb4c19-2774-4de4-a0d0-9fa32fbae29f\"",
+        ))
+        .stdout(predicate::str::contains("\"entry_id\": \"f1b2c3d4\""))
+        .stdout(predicate::str::contains("\"is_leaf\": true"));
+}
+
+#[test]
+fn pi_list_rejects_entry_uri() {
+    let temp = setup_pi_tree();
+
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("turl"));
+    cmd.env("PI_CODING_AGENT_DIR", temp.path().join("agent"))
+        .arg(pi_entry_uri())
+        .arg("--list")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("invalid mode"))
+        .stderr(predicate::str::contains("pi://<session_id>/<entry_id>"));
+}
+
+#[test]
+fn pi_real_fixture_outputs_markdown() {
+    let fixture_root = pi_real_fixture_root();
+    assert!(fixture_root.exists(), "fixture root must exist");
+
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("turl"));
+    cmd.env("PI_CODING_AGENT_DIR", fixture_root)
+        .arg(pi_real_uri())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("# Thread"))
+        .stdout(predicate::str::contains("## 1. User"))
+        .stdout(predicate::str::contains("## 2. Assistant"));
 }
 
 #[test]

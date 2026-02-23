@@ -32,6 +32,13 @@ pub enum TurlError {
         searched_roots: Vec<PathBuf>,
     },
 
+    #[error("entry not found for provider={provider} session_id={session_id} entry_id={entry_id}")]
+    EntryNotFound {
+        provider: String,
+        session_id: String,
+        entry_id: String,
+    },
+
     #[error("thread file is empty: {path}")]
     EmptyThreadFile { path: PathBuf },
 

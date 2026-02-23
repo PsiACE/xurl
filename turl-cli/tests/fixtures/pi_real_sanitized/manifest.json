@@ -1,0 +1,9 @@
+{
+  "provider": "pi",
+  "main_session_id": "bc6ea3d9-0e40-4942-a490-3e0aa7f125de",
+  "entry_ids": {
+    "user": "dd9ee2db",
+    "assistant": "a995f57d"
+  },
+  "notes": "Real Pi session generated with a harmless prompt and sanitized for repository usage."
+}

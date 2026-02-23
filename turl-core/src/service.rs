@@ -7,15 +7,16 @@ use serde_json::Value;
 
 use crate::error::{Result, TurlError};
 use crate::model::{
-    ProviderKind, ResolvedThread, SubagentDetailView, SubagentExcerptMessage,
-    SubagentLifecycleEvent, SubagentListItem, SubagentListView, SubagentQuery, SubagentRelation,
-    SubagentThreadRef, SubagentView,
+    PiEntryListItem, PiEntryListView, PiEntryQuery, ProviderKind, ResolvedThread,
+    SubagentDetailView, SubagentExcerptMessage, SubagentLifecycleEvent, SubagentListItem,
+    SubagentListView, SubagentQuery, SubagentRelation, SubagentThreadRef, SubagentView,
 };
 use crate::provider::amp::AmpProvider;
 use crate::provider::claude::ClaudeProvider;
 use crate::provider::codex::CodexProvider;
 use crate::provider::gemini::GeminiProvider;
 use crate::provider::opencode::OpencodeProvider;
+use crate::provider::pi::PiProvider;
 use crate::provider::{Provider, ProviderRoots};
 use crate::render;
 use crate::uri::ThreadUri;
@@ -53,6 +54,7 @@ pub fn resolve_thread(uri: &ThreadUri, roots: &ProviderRoots) -> Result<Resolved
         ProviderKind::Codex => CodexProvider::new(&roots.codex_root).resolve(&uri.session_id),
         ProviderKind::Claude => ClaudeProvider::new(&roots.claude_root).resolve(&uri.session_id),
         ProviderKind::Gemini => GeminiProvider::new(&roots.gemini_root).resolve(&uri.session_id),
+        ProviderKind::Pi => PiProvider::new(&roots.pi_root).resolve(&uri.session_id),
         ProviderKind::Opencode => {
             OpencodeProvider::new(&roots.opencode_root).resolve(&uri.session_id)
         }
@@ -116,6 +118,155 @@ pub fn render_subagent_view_markdown(view: &SubagentView) -> String {
         SubagentView::List(list_view) => render_subagent_list_markdown(list_view),
         SubagentView::Detail(detail_view) => render_subagent_detail_markdown(detail_view),
     }
+}
+
+pub fn resolve_pi_entry_list_view(
+    uri: &ThreadUri,
+    roots: &ProviderRoots,
+) -> Result<PiEntryListView> {
+    if uri.provider != ProviderKind::Pi {
+        return Err(TurlError::InvalidMode(
+            "pi entry listing requires pi://<session_id>".to_string(),
+        ));
+    }
+    if uri.agent_id.is_some() {
+        return Err(TurlError::InvalidMode(
+            "--list cannot be used with pi://<session_id>/<entry_id>".to_string(),
+        ));
+    }
+
+    let resolved = resolve_thread(uri, roots)?;
+    let raw = read_thread_raw(&resolved.path)?;
+
+    let mut warnings = resolved.metadata.warnings;
+    let mut entries = Vec::<PiEntryListItem>::new();
+    let mut parent_ids = BTreeSet::<String>::new();
+
+    for (line_idx, line) in raw.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+
+        let value = match serde_json::from_str::<Value>(line) {
+            Ok(value) => value,
+            Err(err) => {
+                warnings.push(format!(
+                    "failed to parse pi session line {}: {err}",
+                    line_idx + 1
+                ));
+                continue;
+            }
+        };
+
+        if value.get("type").and_then(Value::as_str) == Some("session") {
+            continue;
+        }
+
+        let Some(entry_id) = value
+            .get("id")
+            .and_then(Value::as_str)
+            .map(ToString::to_string)
+        else {
+            continue;
+        };
+        let parent_id = value
+            .get("parentId")
+            .and_then(Value::as_str)
+            .map(ToString::to_string);
+        if let Some(parent_id) = &parent_id {
+            parent_ids.insert(parent_id.clone());
+        }
+
+        let entry_type = value
+            .get("type")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown")
+            .to_string();
+
+        let timestamp = value
+            .get("timestamp")
+            .and_then(Value::as_str)
+            .map(ToString::to_string);
+
+        let preview = match entry_type.as_str() {
+            "message" => value
+                .get("message")
+                .and_then(|message| message.get("content"))
+                .map(|content| render_preview_text(content, 96))
+                .filter(|text| !text.is_empty()),
+            "compaction" | "branch_summary" => value
+                .get("summary")
+                .and_then(Value::as_str)
+                .map(|text| truncate_preview(text, 96))
+                .filter(|text| !text.is_empty()),
+            _ => None,
+        };
+
+        entries.push(PiEntryListItem {
+            entry_id,
+            entry_type,
+            parent_id,
+            timestamp,
+            is_leaf: false,
+            preview,
+        });
+    }
+
+    for entry in &mut entries {
+        entry.is_leaf = !parent_ids.contains(&entry.entry_id);
+    }
+
+    Ok(PiEntryListView {
+        query: PiEntryQuery {
+            provider: uri.provider.to_string(),
+            session_id: uri.session_id.clone(),
+            list: true,
+        },
+        entries,
+        warnings,
+    })
+}
+
+pub fn pi_entry_list_view_to_raw_json(view: &PiEntryListView) -> Result<String> {
+    serde_json::to_string_pretty(view).map_err(|err| TurlError::Serialization(err.to_string()))
+}
+
+pub fn render_pi_entry_list_markdown(view: &PiEntryListView) -> String {
+    let session_uri = format!("{}://{}", view.query.provider, view.query.session_id);
+    let mut output = String::new();
+    output.push_str("# Pi Session Entries\n\n");
+    output.push_str(&format!("- Provider: `{}`\n", view.query.provider));
+    output.push_str(&format!("- Session: `{}`\n", session_uri));
+    output.push_str("- Mode: `list`\n\n");
+
+    if view.entries.is_empty() {
+        output.push_str("_No entries found in this session._\n");
+        return output;
+    }
+
+    for (index, entry) in view.entries.iter().enumerate() {
+        let entry_uri = format!("{session_uri}/{}", entry.entry_id);
+        output.push_str(&format!("## {}. `{}`\n\n", index + 1, entry_uri));
+        output.push_str(&format!("- Type: `{}`\n", entry.entry_type));
+        output.push_str(&format!(
+            "- Parent: `{}`\n",
+            entry.parent_id.as_deref().unwrap_or("root")
+        ));
+        output.push_str(&format!(
+            "- Timestamp: `{}`\n",
+            entry.timestamp.as_deref().unwrap_or("unknown")
+        ));
+        output.push_str(&format!(
+            "- Leaf: `{}`\n",
+            if entry.is_leaf { "yes" } else { "no" }
+        ));
+        if let Some(preview) = &entry.preview {
+            output.push_str(&format!("- Preview: {}\n", preview));
+        }
+        output.push('\n');
+    }
+
+    output
 }
 
 fn resolve_codex_subagent_view(
@@ -992,6 +1143,43 @@ fn make_query(uri: &ThreadUri, agent_id: Option<String>, list: bool) -> Subagent
         agent_id,
         list,
     }
+}
+
+fn render_preview_text(content: &Value, max_chars: usize) -> String {
+    let text = if content.is_string() {
+        content.as_str().unwrap_or_default().to_string()
+    } else if let Some(items) = content.as_array() {
+        items
+            .iter()
+            .filter_map(|item| {
+                item.get("text")
+                    .and_then(Value::as_str)
+                    .or_else(|| item.as_str())
+            })
+            .collect::<Vec<_>>()
+            .join(" ")
+    } else {
+        String::new()
+    };
+
+    truncate_preview(&text, max_chars)
+}
+
+fn truncate_preview(input: &str, max_chars: usize) -> String {
+    let normalized = input.split_whitespace().collect::<Vec<_>>().join(" ");
+    if normalized.chars().count() <= max_chars {
+        return normalized;
+    }
+
+    let mut out = String::new();
+    for (idx, ch) in normalized.chars().enumerate() {
+        if idx >= max_chars.saturating_sub(1) {
+            break;
+        }
+        out.push(ch);
+    }
+    out.push('…');
+    out
 }
 
 fn render_subagent_list_markdown(view: &SubagentListView) -> String {

@@ -1,3 +1,4 @@
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use serde_json::Value;
@@ -22,7 +23,13 @@ enum TimelineEntry {
 }
 
 pub fn render_markdown(uri: &ThreadUri, source_path: &Path, raw_jsonl: &str) -> Result<String> {
-    let entries = extract_timeline_entries(uri.provider, source_path, raw_jsonl)?;
+    let entries = extract_timeline_entries(
+        uri.provider,
+        source_path,
+        raw_jsonl,
+        &uri.session_id,
+        uri.agent_id.as_deref(),
+    )?;
 
     let mut output = String::new();
     output.push_str("# Thread\n\n");
@@ -62,19 +69,23 @@ pub fn extract_messages(
     path: &Path,
     raw_jsonl: &str,
 ) -> Result<Vec<ThreadMessage>> {
-    Ok(extract_timeline_entries(provider, path, raw_jsonl)?
-        .into_iter()
-        .filter_map(|entry| match entry {
-            TimelineEntry::Message(message) => Some(message),
-            TimelineEntry::Compact { .. } => None,
-        })
-        .collect())
+    Ok(
+        extract_timeline_entries(provider, path, raw_jsonl, "", None)?
+            .into_iter()
+            .filter_map(|entry| match entry {
+                TimelineEntry::Message(message) => Some(message),
+                TimelineEntry::Compact { .. } => None,
+            })
+            .collect(),
+    )
 }
 
 fn extract_timeline_entries(
     provider: ProviderKind,
     path: &Path,
     raw_jsonl: &str,
+    session_id: &str,
+    target_entry_id: Option<&str>,
 ) -> Result<Vec<TimelineEntry>> {
     if provider == ProviderKind::Amp {
         return Ok(messages_to_entries(extract_amp_messages(path, raw_jsonl)?));
@@ -83,6 +94,9 @@ fn extract_timeline_entries(
         return Ok(messages_to_entries(extract_gemini_messages(
             path, raw_jsonl,
         )?));
+    }
+    if provider == ProviderKind::Pi {
+        return extract_pi_entries(path, raw_jsonl, session_id, target_entry_id);
     }
 
     let mut entries = Vec::new();
@@ -107,6 +121,7 @@ fn extract_timeline_entries(
             ProviderKind::Codex => extract_codex_entry(&value),
             ProviderKind::Claude => extract_claude_entry(&value),
             ProviderKind::Gemini => None,
+            ProviderKind::Pi => None,
             ProviderKind::Opencode => extract_opencode_message(&value).map(TimelineEntry::Message),
         };
 
@@ -120,6 +135,126 @@ fn extract_timeline_entries(
 
 fn messages_to_entries(messages: Vec<ThreadMessage>) -> Vec<TimelineEntry> {
     messages.into_iter().map(TimelineEntry::Message).collect()
+}
+
+fn extract_pi_entries(
+    path: &Path,
+    raw_jsonl: &str,
+    session_id: &str,
+    target_entry_id: Option<&str>,
+) -> Result<Vec<TimelineEntry>> {
+    let mut entries_by_id = HashMap::<String, Value>::new();
+    let mut last_entry_id = None::<String>;
+
+    for (line_idx, line) in raw_jsonl.lines().enumerate() {
+        let line_no = line_idx + 1;
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        let value = serde_json::from_str::<Value>(trimmed).map_err(|source| {
+            TurlError::InvalidJsonLine {
+                path: path.to_path_buf(),
+                line: line_no,
+                source,
+            }
+        })?;
+
+        if value.get("type").and_then(Value::as_str) == Some("session") {
+            continue;
+        }
+
+        let Some(id) = value
+            .get("id")
+            .and_then(Value::as_str)
+            .map(ToString::to_string)
+        else {
+            continue;
+        };
+
+        last_entry_id = Some(id.clone());
+        entries_by_id.insert(id, value);
+    }
+
+    if entries_by_id.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let leaf_id = target_entry_id
+        .map(ToString::to_string)
+        .or(last_entry_id)
+        .unwrap_or_default();
+
+    if !entries_by_id.contains_key(&leaf_id) {
+        return Err(TurlError::EntryNotFound {
+            provider: ProviderKind::Pi.to_string(),
+            session_id: session_id.to_string(),
+            entry_id: leaf_id,
+        });
+    }
+
+    let mut path_ids = Vec::new();
+    let mut seen = HashSet::new();
+    let mut current = Some(leaf_id);
+
+    while let Some(entry_id) = current {
+        if !seen.insert(entry_id.clone()) {
+            break;
+        }
+
+        let Some(entry) = entries_by_id.get(&entry_id) else {
+            break;
+        };
+        path_ids.push(entry_id);
+
+        current = entry
+            .get("parentId")
+            .and_then(Value::as_str)
+            .map(ToString::to_string);
+    }
+
+    path_ids.reverse();
+
+    let mut entries = Vec::new();
+    for entry_id in path_ids {
+        let Some(entry) = entries_by_id.get(&entry_id) else {
+            continue;
+        };
+        if let Some(timeline_entry) = extract_pi_entry(entry) {
+            entries.push(timeline_entry);
+        }
+    }
+
+    Ok(entries)
+}
+
+fn extract_pi_entry(value: &Value) -> Option<TimelineEntry> {
+    let entry_type = value.get("type").and_then(Value::as_str)?;
+
+    if entry_type == "message" {
+        let message = value.get("message")?;
+        let role = message
+            .get("role")
+            .and_then(Value::as_str)
+            .and_then(parse_role)?;
+        let text = extract_text(message.get("content"));
+        if text.trim().is_empty() {
+            return None;
+        }
+
+        return Some(TimelineEntry::Message(ThreadMessage { role, text }));
+    }
+
+    if entry_type == "compaction" || entry_type == "branch_summary" {
+        let summary = value
+            .get("summary")
+            .and_then(Value::as_str)
+            .map(ToString::to_string);
+        return Some(TimelineEntry::Compact { summary });
+    }
+
+    None
 }
 
 fn extract_amp_messages(path: &Path, raw_json: &str) -> Result<Vec<ThreadMessage>> {
@@ -527,6 +662,55 @@ mod tests {
         assert_eq!(messages[0].text, "hello");
         assert_eq!(messages[1].text, "world");
         assert_eq!(messages[2].text, "step by step\n\ndone");
+    }
+
+    #[test]
+    fn pi_default_leaf_renders_latest_branch() {
+        let raw = r#"{"type":"session","version":3,"id":"12cb4c19-2774-4de4-a0d0-9fa32fbae29f","timestamp":"2026-02-23T13:00:12.780Z","cwd":"/tmp/project"}
+{"type":"message","id":"a1b2c3d4","parentId":null,"timestamp":"2026-02-23T13:00:13.000Z","message":{"role":"user","content":[{"type":"text","text":"root"}]}}
+{"type":"message","id":"b1b2c3d4","parentId":"a1b2c3d4","timestamp":"2026-02-23T13:00:14.000Z","message":{"role":"assistant","content":[{"type":"text","text":"root done"}]}}
+{"type":"message","id":"c1b2c3d4","parentId":"b1b2c3d4","timestamp":"2026-02-23T13:00:15.000Z","message":{"role":"user","content":[{"type":"text","text":"branch one"}]}}
+{"type":"message","id":"d1b2c3d4","parentId":"c1b2c3d4","timestamp":"2026-02-23T13:00:16.000Z","message":{"role":"assistant","content":[{"type":"text","text":"branch one done"}]}}
+{"type":"message","id":"e1b2c3d4","parentId":"b1b2c3d4","timestamp":"2026-02-23T13:00:17.000Z","message":{"role":"user","content":[{"type":"text","text":"branch two"}]}}
+{"type":"compaction","id":"f1b2c3d4","parentId":"e1b2c3d4","timestamp":"2026-02-23T13:00:18.000Z","summary":"compact summary","firstKeptEntryId":"b1b2c3d4","tokensBefore":128}
+{"type":"message","id":"g1b2c3d4","parentId":"f1b2c3d4","timestamp":"2026-02-23T13:00:19.000Z","message":{"role":"assistant","content":[{"type":"text","text":"branch two done"}]}}"#;
+
+        let uri = ThreadUri::parse("pi://12cb4c19-2774-4de4-a0d0-9fa32fbae29f").expect("parse uri");
+        let output = render_markdown(&uri, Path::new("/tmp/mock"), raw).expect("render");
+
+        assert!(output.contains("root"));
+        assert!(output.contains("branch two"));
+        assert!(output.contains("compact summary"));
+        assert!(!output.contains("branch one done"));
+    }
+
+    #[test]
+    fn pi_entry_leaf_renders_requested_branch() {
+        let raw = r#"{"type":"session","version":3,"id":"12cb4c19-2774-4de4-a0d0-9fa32fbae29f","timestamp":"2026-02-23T13:00:12.780Z","cwd":"/tmp/project"}
+{"type":"message","id":"a1b2c3d4","parentId":null,"timestamp":"2026-02-23T13:00:13.000Z","message":{"role":"user","content":[{"type":"text","text":"root"}]}}
+{"type":"message","id":"b1b2c3d4","parentId":"a1b2c3d4","timestamp":"2026-02-23T13:00:14.000Z","message":{"role":"assistant","content":[{"type":"text","text":"root done"}]}}
+{"type":"message","id":"c1b2c3d4","parentId":"b1b2c3d4","timestamp":"2026-02-23T13:00:15.000Z","message":{"role":"user","content":[{"type":"text","text":"branch one"}]}}
+{"type":"message","id":"d1b2c3d4","parentId":"c1b2c3d4","timestamp":"2026-02-23T13:00:16.000Z","message":{"role":"assistant","content":[{"type":"text","text":"branch one done"}]}}
+{"type":"message","id":"e1b2c3d4","parentId":"b1b2c3d4","timestamp":"2026-02-23T13:00:17.000Z","message":{"role":"user","content":[{"type":"text","text":"branch two"}]}}
+{"type":"message","id":"f1b2c3d4","parentId":"e1b2c3d4","timestamp":"2026-02-23T13:00:18.000Z","message":{"role":"assistant","content":[{"type":"text","text":"branch two done"}]}}"#;
+
+        let uri = ThreadUri::parse("pi://12cb4c19-2774-4de4-a0d0-9fa32fbae29f/d1b2c3d4")
+            .expect("parse uri");
+        let output = render_markdown(&uri, Path::new("/tmp/mock"), raw).expect("render");
+
+        assert!(output.contains("branch one done"));
+        assert!(!output.contains("branch two done"));
+    }
+
+    #[test]
+    fn pi_entry_leaf_reports_not_found() {
+        let raw = r#"{"type":"session","version":3,"id":"12cb4c19-2774-4de4-a0d0-9fa32fbae29f","timestamp":"2026-02-23T13:00:12.780Z","cwd":"/tmp/project"}
+{"type":"message","id":"a1b2c3d4","parentId":null,"timestamp":"2026-02-23T13:00:13.000Z","message":{"role":"user","content":[{"type":"text","text":"root"}]}}"#;
+
+        let uri = ThreadUri::parse("pi://12cb4c19-2774-4de4-a0d0-9fa32fbae29f/deadbeef")
+            .expect("parse uri");
+        let err = render_markdown(&uri, Path::new("/tmp/mock"), raw).expect_err("must fail");
+        assert!(format!("{err}").contains("entry not found"));
     }
 
     #[test]

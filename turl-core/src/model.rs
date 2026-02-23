@@ -9,6 +9,7 @@ pub enum ProviderKind {
     Codex,
     Claude,
     Gemini,
+    Pi,
     Opencode,
 }
 
@@ -19,6 +20,7 @@ impl fmt::Display for ProviderKind {
             Self::Codex => write!(f, "codex"),
             Self::Claude => write!(f, "claude"),
             Self::Gemini => write!(f, "gemini"),
+            Self::Pi => write!(f, "pi"),
             Self::Opencode => write!(f, "opencode"),
         }
     }
@@ -130,4 +132,29 @@ pub struct SubagentListView {
 pub enum SubagentView {
     List(SubagentListView),
     Detail(SubagentDetailView),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PiEntryQuery {
+    pub provider: String,
+    pub session_id: String,
+    pub list: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PiEntryListItem {
+    pub entry_id: String,
+    pub entry_type: String,
+    pub parent_id: Option<String>,
+    pub timestamp: Option<String>,
+    pub is_leaf: bool,
+    pub preview: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PiEntryListView {
+    pub query: PiEntryQuery,
+    pub entries: Vec<PiEntryListItem>,
+    #[serde(skip_serializing)]
+    pub warnings: Vec<String>,
 }

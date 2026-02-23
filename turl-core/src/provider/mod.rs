@@ -11,6 +11,7 @@ pub mod claude;
 pub mod codex;
 pub mod gemini;
 pub mod opencode;
+pub mod pi;
 
 pub trait Provider {
     fn resolve(&self, session_id: &str) -> Result<ResolvedThread>;
@@ -22,6 +23,7 @@ pub struct ProviderRoots {
     pub codex_root: PathBuf,
     pub claude_root: PathBuf,
     pub gemini_root: PathBuf,
+    pub pi_root: PathBuf,
     pub opencode_root: PathBuf,
 }
 
@@ -61,6 +63,14 @@ impl ProviderRoots {
             .unwrap_or_else(|| home.join(".gemini"));
 
         // Precedence:
+        // 1) PI_CODING_AGENT_DIR (official pi coding agent root env)
+        // 2) ~/.pi/agent (pi default)
+        let pi_root = env::var_os("PI_CODING_AGENT_DIR")
+            .filter(|path| !path.is_empty())
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home.join(".pi/agent"));
+
+        // Precedence:
         // 1) XDG_DATA_HOME/opencode
         // 2) ~/.local/share/opencode
         let opencode_root = env::var_os("XDG_DATA_HOME")
@@ -74,6 +84,7 @@ impl ProviderRoots {
             codex_root,
             claude_root,
             gemini_root,
+            pi_root,
             opencode_root,
         })
     }

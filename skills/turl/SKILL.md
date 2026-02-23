@@ -1,6 +1,6 @@
 ---
 name: turl
-description: Use the turl CLI to resolve Amp, Codex, Claude, Gemini, or OpenCode thread URIs and print thread content in markdown or raw records.
+description: Use the turl CLI to resolve Amp, Codex, Claude, Gemini, Pi, or OpenCode thread URIs and print thread content in markdown or raw records.
 ---
 
 # turl
@@ -18,7 +18,7 @@ turl --version
 
 ## When to Use
 
-- The user gives an `amp://...`, `codex://...`, `codex://threads/...`, `claude://...`, `gemini://...`, or `opencode://...` URI.
+- The user gives an `amp://...`, `codex://...`, `codex://threads/...`, `claude://...`, `gemini://...`, `pi://...`, or `opencode://...` URI.
 - The user asks to inspect, view, or fetch thread content.
 
 ## Input
@@ -31,6 +31,8 @@ turl --version
   - `claude://<session_id>`
   - `claude://<main_session_id>/<agent_id>`
   - `gemini://<session_id>`
+  - `pi://<session_id>`
+  - `pi://<session_id>/<entry_id>`
   - `opencode://<session_id>`
 
 ## Commands
@@ -95,6 +97,14 @@ Gemini thread example:
 turl gemini://29d207db-ca7e-40ba-87f7-e14c9de60613
 ```
 
+Pi thread examples:
+
+```bash
+turl pi://12cb4c19-2774-4de4-a0d0-9fa32fbae29f
+turl pi://12cb4c19-2774-4de4-a0d0-9fa32fbae29f/d1b2c3d4
+turl pi://12cb4c19-2774-4de4-a0d0-9fa32fbae29f --list
+```
+
 Amp thread example:
 
 ```bash
@@ -105,6 +115,7 @@ turl amp://T-019c0797-c402-7389-bd80-d785c98df295
 
 - If the user does not request `--raw`, use default markdown output first.
 - If the user asks for subagent aggregation, use `--list` with the parent thread URI.
+- If the user asks for Pi session navigation targets, use `--list` with `pi://<session_id>`.
 - In subagent markdown output, keep parent and subagent references as full URIs (`<provider>://<main>` and `<provider>://<main>/<agent>`).
 - If the user requests exact records, rerun with `--raw`.
 - Return the command output directly.

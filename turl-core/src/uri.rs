@@ -16,6 +16,8 @@ static AMP_SESSION_ID_RE: Lazy<Regex> = Lazy::new(|| {
 });
 static OPENCODE_SESSION_ID_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"^ses_[0-9A-Za-z]+$").expect("valid regex"));
+static PI_SHORT_ENTRY_ID_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?i)^[0-9a-f]{8}$").expect("valid regex"));
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ThreadUri {
@@ -50,6 +52,7 @@ impl FromStr for ThreadUri {
             "codex" => ProviderKind::Codex,
             "claude" => ProviderKind::Claude,
             "gemini" => ProviderKind::Gemini,
+            "pi" => ProviderKind::Pi,
             "opencode" => ProviderKind::Opencode,
             _ => return Err(TurlError::UnsupportedScheme(scheme.to_string())),
         };
@@ -57,11 +60,14 @@ impl FromStr for ThreadUri {
         let normalized_target = match provider {
             ProviderKind::Amp => target,
             ProviderKind::Codex => target.strip_prefix("threads/").unwrap_or(target),
-            ProviderKind::Claude | ProviderKind::Gemini | ProviderKind::Opencode => target,
+            ProviderKind::Claude
+            | ProviderKind::Gemini
+            | ProviderKind::Pi
+            | ProviderKind::Opencode => target,
         };
 
         let (id, agent_id) = match provider {
-            ProviderKind::Codex | ProviderKind::Claude => {
+            ProviderKind::Codex | ProviderKind::Claude | ProviderKind::Pi => {
                 let mut segments = normalized_target.split('/');
                 let main_id = segments.next().unwrap_or_default();
                 let agent_id = segments.next().map(str::to_string);
@@ -88,7 +94,10 @@ impl FromStr for ThreadUri {
             ProviderKind::Amp if !AMP_SESSION_ID_RE.is_match(id) => {
                 return Err(TurlError::InvalidSessionId(id.to_string()));
             }
-            ProviderKind::Codex | ProviderKind::Claude | ProviderKind::Gemini
+            ProviderKind::Codex
+            | ProviderKind::Claude
+            | ProviderKind::Gemini
+            | ProviderKind::Pi
                 if !SESSION_ID_RE.is_match(id) =>
             {
                 return Err(TurlError::InvalidSessionId(id.to_string()));
@@ -101,14 +110,19 @@ impl FromStr for ThreadUri {
 
         let session_id = match provider {
             ProviderKind::Amp => format!("T-{}", id[2..].to_ascii_lowercase()),
-            ProviderKind::Codex | ProviderKind::Claude | ProviderKind::Gemini => {
-                id.to_ascii_lowercase()
-            }
+            ProviderKind::Codex
+            | ProviderKind::Claude
+            | ProviderKind::Gemini
+            | ProviderKind::Pi => id.to_ascii_lowercase(),
             ProviderKind::Opencode => id.to_string(),
         };
 
         let agent_id = agent_id.map(|agent_id| {
-            if provider == ProviderKind::Codex && SESSION_ID_RE.is_match(&agent_id) {
+            if (provider == ProviderKind::Codex && SESSION_ID_RE.is_match(&agent_id))
+                || (provider == ProviderKind::Pi
+                    && (SESSION_ID_RE.is_match(&agent_id)
+                        || PI_SHORT_ENTRY_ID_RE.is_match(&agent_id)))
+            {
                 agent_id.to_ascii_lowercase()
             } else {
                 agent_id
@@ -221,5 +235,30 @@ mod tests {
         assert_eq!(uri.provider, ProviderKind::Gemini);
         assert_eq!(uri.session_id, "29d207db-ca7e-40ba-87f7-e14c9de60613");
         assert_eq!(uri.agent_id, None);
+    }
+
+    #[test]
+    fn parse_valid_pi_uri() {
+        let uri = ThreadUri::parse("pi://12CB4C19-2774-4DE4-A0D0-9FA32FBAE29F")
+            .expect("parse should succeed");
+        assert_eq!(uri.provider, ProviderKind::Pi);
+        assert_eq!(uri.session_id, "12cb4c19-2774-4de4-a0d0-9fa32fbae29f");
+        assert_eq!(uri.agent_id, None);
+    }
+
+    #[test]
+    fn parse_valid_pi_entry_uri() {
+        let uri = ThreadUri::parse("pi://12cb4c19-2774-4de4-a0d0-9fa32fbae29f/1C130174")
+            .expect("parse should succeed");
+        assert_eq!(uri.provider, ProviderKind::Pi);
+        assert_eq!(uri.session_id, "12cb4c19-2774-4de4-a0d0-9fa32fbae29f");
+        assert_eq!(uri.agent_id, Some("1c130174".to_string()));
+    }
+
+    #[test]
+    fn parse_rejects_extra_path_segments_for_pi() {
+        let err = ThreadUri::parse("pi://12cb4c19-2774-4de4-a0d0-9fa32fbae29f/a/b")
+            .expect_err("must reject nested path");
+        assert!(format!("{err}").contains("invalid uri"));
     }
 }

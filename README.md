@@ -9,10 +9,12 @@
   - <img src="https://avatars.githubusercontent.com/u/14957082?s=24&v=4" alt="Codex logo" width="16" height="16" /> Codex
   - <img src="https://www.anthropic.com/favicon.ico" alt="Claude logo" width="16" height="16" /> Claude
   - <img src="https://www.google.com/favicon.ico" alt="Gemini logo" width="16" height="16" /> Gemini
+  - Pi
   - <img src="https://opencode.ai/favicon.ico" alt="OpenCode logo" width="16" height="16" /> OpenCode
 - Default output is timeline markdown with user/assistant messages and compact markers.
 - `--raw` outputs raw thread records.
 - `--list` outputs subagent status aggregation for providers that support subagent transcripts.
+  - For Pi, `--list` outputs session entries with leaf markers and entry URIs.
 - Subagent markdown views always print full parent/subagent URIs (`<provider>://<main>` and `<provider>://<main>/<agent>`).
 - Non-fatal diagnostics are kept internal; only fatal errors are printed to `stderr`.
 - Automatically respects official environment variables and default local data roots for each supported agent.
@@ -100,4 +102,26 @@ turl opencode://ses_43a90e3adffejRgrTdlJa48CtE
 
 ```bash
 turl gemini://29d207db-ca7e-40ba-87f7-e14c9de60613
+```
+
+### Pi
+
+- Supported URIs:
+  - `pi://<session_id>`
+  - `pi://<session_id>/<entry_id>`
+- Session id format:
+  - `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`
+- Resolution:
+  - `PI_CODING_AGENT_DIR/sessions/**/*.jsonl`
+  - fallback: `~/.pi/agent/sessions/**/*.jsonl`
+- Rendering:
+  - `pi://<session_id>` renders the latest leaf branch in the session tree.
+  - `pi://<session_id>/<entry_id>` renders the branch ending at the specified entry id.
+  - `pi://<session_id> --list` lists all entries and marks leaf entries that are good drill-down targets.
+- Example:
+
+```bash
+turl pi://12cb4c19-2774-4de4-a0d0-9fa32fbae29f
+turl pi://12cb4c19-2774-4de4-a0d0-9fa32fbae29f/d1b2c3d4
+turl pi://12cb4c19-2774-4de4-a0d0-9fa32fbae29f --list
 ```
