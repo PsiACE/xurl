@@ -32,3 +32,7 @@
 - Keep patches as small as possible: touch only the crate that owns the behavior, avoid cross-crate refactors unless the fix explicitly requires both `turl-core` and `turl-cli`.
 - Unless the user asks for new optional behavior, do not add new dependencies, features, or files; if you see adjacent concerns, surface them as follow-up items instead of folding them into the current change.
 - Document any deviation from the existing light-touch approach (e.g., introducing new public interfaces or broader renders) so reviewers know why the scope expanded.
+
+## Branch Safety Rule
+- If the user is working on `main`, do not create a new branch and do not switch branches unless the user explicitly asks for it.
+- If branch-based workflow could help, mention it as an optional follow-up instead of doing it by default.
