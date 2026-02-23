@@ -1,6 +1,8 @@
-# xurl
+# xURL
 
-`xurl` is a Rust CLI and library for locating and reading local code-agent thread files.
+`xURL` is a client for AI agent URLs.
+
+> Also known as **Xuanwo's URL**.
 
 ## Features
 
